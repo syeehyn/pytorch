@@ -113,7 +113,7 @@ c10::MaybeOwned<Tensor> prepare_batch_matrix_for_cublas(const Tensor& tensor, bo
 
 namespace {
 
-Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& mat1, const Tensor& mat2, const Scalar& beta, const Scalar& alpha) {
+Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& mat1, const Tensor& mat2, const Scalar& beta, const Scalar& alpha, cuda::blas::GEMMAndBiasActivationEpilogue activation=cuda::blas::GEMMAndBiasActivationEpilogue::None) {
   // Make sure to keep addmm_cuda below in sync with this code; it
   // preflights a check to try to avoid actually needing to call
   // expand().
@@ -231,7 +231,16 @@ Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& ma
               mat2_ld,
               self.data_ptr<scalar_t>(),
               result_->data_ptr<scalar_t>(),
-              result_ld);
+              result_ld,
+#if CUDA_VERSION >= 11040
+              activation
+#else
+              // GELU is not supported (and does not compile!) prior to CUDA 11.4.
+              activation != cuda::blas::GEMMAndBiasActivationEpilogue::GELU
+              ? activation
+              : cuda::blas::GEMMAndBiasActivationEpilogue::None
+#endif
+          );
         });
   } else
 #endif
@@ -263,7 +272,22 @@ Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& ma
               result_ptr,
               result_ld);
         });
+    switch (activation) {
+      case cuda::blas::GEMMAndBiasActivationEpilogue::RELU:
+        at::relu_(const_cast<Tensor&>(*result_));
+        break;
+      case cuda::blas::GEMMAndBiasActivationEpilogue::GELU:
+        result_ = c10::MaybeOwned<Tensor>::owned(at::gelu(*result_));
+        break;
+      default: break;
+    }
   }
+
+#if defined(CUDA_VERSION) && CUDA_VERSION >= 11000 && CUDA_VERSION < 11040 && !defined(_MSC_VER)
+  if (useLtInterface && activation == cuda::blas::GEMMAndBiasActivationEpilogue::GELU) {
+    result_ = c10::MaybeOwned<Tensor>::owned(at::gelu(*result_));
+  }
+#endif
 
   if (!result.is_same(*result_)) {
     result.copy_(*result_);
@@ -346,6 +370,10 @@ const Tensor& baddbmm_out_cuda_impl(const Tensor& result, const Tensor& self, co
 
 TORCH_IMPL_FUNC(addmm_out_cuda)(const Tensor& self, const Tensor& mat1, const Tensor& mat2, const Scalar& beta, const Scalar& alpha, const Tensor& result) {
   addmm_out_cuda_impl(const_cast<Tensor&>(result), self, mat1, mat2, beta, alpha);
+}
+
+TORCH_IMPL_FUNC(addmm_activation_out_cuda)(const Tensor& self, const Tensor& mat1, const Tensor& mat2, const Scalar& beta, const Scalar& alpha, bool use_gelu, const Tensor& result) {
+  addmm_out_cuda_impl(const_cast<Tensor&>(result), self, mat1, mat2, beta, alpha, use_gelu ? cuda::blas::GEMMAndBiasActivationEpilogue::GELU : cuda::blas::GEMMAndBiasActivationEpilogue::RELU);
 }
 
 TORCH_IMPL_FUNC(mm_out_cuda)(const Tensor& self, const Tensor& mat2, const Tensor& result) {
