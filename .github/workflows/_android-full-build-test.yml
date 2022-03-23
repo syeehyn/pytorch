@@ -75,7 +75,7 @@ jobs:
         run: .github/scripts/parse_ref.py
 
       - name: Build arm-v7a
-        uses: pytorch/pytorch/.github/actions/build-android@master
+        uses: ./.github/actions/build-android
         with:
           arch: arm_v7a
           arch-for-build-env: arm-v7a
@@ -85,7 +85,7 @@ jobs:
           branch: ${{ steps.parse-ref.outputs.branch }}
 
       - name: Build arm-v8a
-        uses: pytorch/pytorch/.github/actions/build-android@master
+        uses: ./.github/actions/build-android
         with:
           arch: arm_v8a
           arch-for-build-env: arm-v8a
@@ -96,7 +96,7 @@ jobs:
 
       - name: Build x86_32
         id: build-x86_32
-        uses: pytorch/pytorch/.github/actions/build-android@master
+        uses: ./.github/actions/build-android
         with:
           arch: x86_32
           arch-for-build-env: x86_32
@@ -106,7 +106,7 @@ jobs:
           branch: ${{ steps.parse-ref.outputs.branch }}
 
       - name: Build x86_64
-        uses: pytorch/pytorch/.github/actions/build-android@master
+        uses: ./.github/actions/build-android
         with:
           arch: x86_64
           arch-for-build-env: x86_64
@@ -129,6 +129,7 @@ jobs:
           set -eux
 
           # Putting everything together
+          echo ${ID_X86_32}
           # ID_X86_32 container were created during build-x86_32 step
           docker cp "${GITHUB_WORKSPACE}/build_android_install_arm_v7a" "${ID_X86_32}:/var/lib/jenkins/workspace/build_android_install_arm_v7a"
           docker cp "${GITHUB_WORKSPACE}/build_android_install_x86_64" "${ID_X86_32}:/var/lib/jenkins/workspace/build_android_install_x86_64"
